@@ -1,2 +1,2 @@
 minimumReleaseAgeExclude:
-  - '@alonsonunez-developer/catalog-kit@0.1.0'
+  - '@alonsonunez-developer/catalog-kit@0.1.0 || 0.1.1'
