@@ -42,14 +42,18 @@ function onKey(e: KeyboardEvent) {
   if (e.key === 'ArrowLeft') go(current.value - 1)
 }
 
-// Deslizar: izquierda = siguiente, derecha = anterior
+// Deslizar: izquierda = siguiente, derecha = anterior.
+// Los elementos con data-no-swipe (como el carrusel de fotos) se quedan con su propio deslizamiento.
 let startX = 0
 let startY = 0
+let ignoreSwipe = false
 function onTouchStart(e: TouchEvent) {
+  ignoreSwipe = !!(e.target as Element | null)?.closest?.('[data-no-swipe]')
   startX = e.touches[0].clientX
   startY = e.touches[0].clientY
 }
 function onTouchEnd(e: TouchEvent) {
+  if (ignoreSwipe) return
   const dx = e.changedTouches[0].clientX - startX
   const dy = e.changedTouches[0].clientY - startY
   if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return
