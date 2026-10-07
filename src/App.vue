@@ -449,6 +449,7 @@ body {
 
 /* Retroceder: la página anterior vuelve girando encima de la actual */
 .turn-prev-enter-active {
+  position: relative;
   z-index: 2;
   transform-origin: left center;
   backface-visibility: hidden;
