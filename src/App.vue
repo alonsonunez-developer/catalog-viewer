@@ -19,66 +19,11 @@ const authorMode = computed<'single' | 'double'>(() =>
   parsed.value.success && parsed.value.data.version === 2 && parsed.value.data.display === 'double' ? 'double' : 'single',
 )
 
-// ===== Volteo de hoja (modo doble) =====
-// p = primera página del par de origen/destino más bajo: [p, p+1] y [p+2, p+3].
-// La hoja que gira tiene de frente p+1 y de reverso p+2.
-const flip = ref<{ p: number; dir: 'next' | 'prev'; angle: number } | null>(null)
-let flipTimer: ReturnType<typeof setTimeout> | null = null
-
-function clearFlip() {
-  if (flipTimer) clearTimeout(flipTimer)
-  flipTimer = null
-  flip.value = null
-}
-
-const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-function startFlip(p: number, flipDir: 'next' | 'prev', to: number) {
-  const start = flipDir === 'next' ? 0 : -180
-  const end = flipDir === 'next' ? -180 : 0
-  flip.value = { p, dir: flipDir, angle: start }
-  current.value = to
-  // Se pinta el estado inicial y, un cuadro después, se pide el final para que la transición CSS corra
-  nextTick().then(() =>
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        if (flip.value) flip.value.angle = end
-      }),
-    ),
-  )
-  flipTimer = setTimeout(clearFlip, 900)
-}
-
-// Solo se voltea entre pares completos que se siguen. Devuelve true si inició el volteo.
-function tryFlip(from: number, to: number): boolean {
-  if (!double.value || reducedMotion()) return false
-  const s = spreadStart(from)
-  if (s < 1 || to < 1 || Math.abs(to - s) !== 2) return false
-  if (Math.max(s, to) + 1 >= total.value) return false
-  startFlip(Math.min(s, to), to > s ? 'next' : 'prev', to)
-  return true
-}
-
-// ===== Dirección de la animación de las otras transiciones =====
-// 'next' / 'prev' = voltear página (modo 1 página); 'none' = cambio sin avanzar ni retroceder (desvanecer)
-const dir = ref<'next' | 'prev' | 'none'>('none')
-function moveTo(next: number) {
-  clearFlip()
-  dir.value = next > current.value ? 'next' : next < current.value ? 'prev' : 'none'
-  current.value = next
-}
-
 // ===== Modo 1 o 2 páginas =====
 // Dos páginas solo caben en pantallas anchas (2 × 560 px)
 const WIDE_QUERY = '(min-width: 1180px)'
 const wide = ref(false)
 let mql: MediaQueryList | null = null
-const onWideChange = (e: MediaQueryListEvent) => {
-  clearFlip()
-  dir.value = 'none'
-  wide.value = e.matches
-  current.value = spreadStart(current.value)
-}
 
 const PREF_KEY = 'ck-view-mode'
 const userMode = ref<'single' | 'double' | null>(null)
@@ -101,16 +46,24 @@ function savePref(v: 'single' | 'double') {
 
 const double = computed(() => paged.value && wide.value && (userMode.value ?? authorMode.value) === 'double')
 
-// En modo doble la portada va sola y después van pares: [0], [1,2], [3,4]…
+// En modo doble la portada va sola (a la derecha) y después van pares: [0], [1,2], [3,4]…
+// Si el total es par, la última página queda sola (a la izquierda).
 function spreadStart(i: number): number {
   if (!double.value || i <= 0) return Math.max(0, i)
   return i % 2 === 1 ? i : i - 1
 }
+// Página de la izquierda y de la derecha de un par (null = hueco vacío)
+const leftOf = (s: number): number | null => (s === 0 ? null : s)
+const rightOf = (s: number): number | null => (s === 0 ? 0 : s + 1 < total.value ? s + 1 : null)
+
 const visible = computed(() => {
   const s = spreadStart(current.value)
   if (!double.value || s === 0) return [s]
   return [s, s + 1].filter((i) => i < total.value)
 })
+const leftPage = computed(() => leftOf(spreadStart(current.value)))
+const rightPage = computed(() => rightOf(spreadStart(current.value)))
+
 const nextIndex = computed(() => {
   const s = spreadStart(current.value)
   if (!double.value) return s + 1
@@ -129,19 +82,94 @@ const counter = computed(() => {
   return `${range} / ${total.value}`
 })
 
-// Animación: sin transición de Vue durante el volteo de hoja (lo anima el propio libro),
-// volteo de página en modo de 1 página, y desvanecimiento en el resto
+// ===== Volteo de hoja (modo doble) =====
+// La hoja que gira tiene un frente (F) y un reverso (B). Debajo quedan la base izquierda (L)
+// y la derecha (R). Cualquiera puede estar vacía (null): portada y última página sola.
+//   Avanzar: F = derecha del par actual, B = izquierda del par nuevo, L = izquierda actual, R = derecha nueva.
+//   Retroceder: la misma hoja en sentido inverso.
+interface Flip {
+  L: number | null
+  R: number | null
+  F: number
+  B: number
+  angle: number
+}
+const flip = ref<Flip | null>(null)
+let flipTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearFlip() {
+  if (flipTimer) clearTimeout(flipTimer)
+  flipTimer = null
+  flip.value = null
+}
+
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+// Devuelve true si inició el volteo (solo entre pares contiguos, en modo doble)
+function tryFlip(from: number, to: number): boolean {
+  if (!double.value || reducedMotion()) return false
+  const s = spreadStart(from)
+  const isNext = to === nextIndex.value && hasNext.value
+  const isPrev = to === prevIndex.value && hasPrev.value
+  if (!isNext && !isPrev) return false
+
+  const F = isNext ? rightOf(s) : rightOf(to)
+  const B = isNext ? leftOf(to) : leftOf(s)
+  if (F === null || B === null) return false
+
+  flip.value = {
+    L: isNext ? leftOf(s) : leftOf(to),
+    R: isNext ? rightOf(to) : rightOf(s),
+    F,
+    B,
+    angle: isNext ? 0 : -180,
+  }
+  const end = isNext ? -180 : 0
+  current.value = to
+  // Se pinta el estado inicial y, un par de cuadros después, el final para que la transición CSS corra
+  nextTick().then(() =>
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (flip.value) flip.value.angle = end
+      }),
+    ),
+  )
+  flipTimer = setTimeout(clearFlip, 900)
+  return true
+}
+
+// ===== Animaciones de las demás transiciones =====
+// 'next' / 'prev' = voltear página (modo 1 página); 'none' = cambio sin avanzar ni retroceder (desvanecer)
+const dir = ref<'next' | 'prev' | 'none'>('none')
+// En modo doble el contenedor conserva su identidad durante un volteo; este contador solo
+// cambia en los cambios que deben desvanecerse (modo, tamaño de ventana, botón Atrás).
+const fadeKey = ref(0)
+
+function moveTo(next: number) {
+  clearFlip()
+  dir.value = next > current.value ? 'next' : next < current.value ? 'prev' : 'none'
+  fadeKey.value++
+  current.value = next
+}
+
+const onWideChange = (e: MediaQueryListEvent) => {
+  clearFlip()
+  dir.value = 'none'
+  fadeKey.value++
+  wide.value = e.matches
+  current.value = spreadStart(current.value)
+}
+
 const transitionName = computed(() => {
-  if (flip.value) return 'none'
   if (double.value || dir.value === 'none') return 'fade'
   return dir.value === 'next' ? 'turn-next' : 'turn-prev'
 })
-// Cada página o par visible es un elemento distinto para la transición
-const spreadKey = computed(() => `${double.value ? 'd' : 's'}-${visible.value.join('-')}`)
+const spreadKey = computed(() => (double.value ? `d-${fadeKey.value}` : `s-${visible.value.join('-')}`))
 
 function setMode(m: 'single' | 'double') {
   clearFlip()
   dir.value = 'none'
+  fadeKey.value++
   savePref(m)
   current.value = spreadStart(current.value)
   history.replaceState({}, '', `/${slug}/${current.value + 1}`)
@@ -242,26 +270,36 @@ onBeforeUnmount(() => {
   >
     <div class="stage">
       <Transition :name="transitionName">
-        <div :key="spreadKey" :class="flip ? 'book' : 'spread'">
-          <!-- Libro con la hoja girando: bases estáticas y la hoja de dos caras encima -->
+        <div :key="spreadKey" :class="double ? (flip ? 'book flipping' : 'book') : 'spread'">
+          <!-- Modo doble con la hoja girando: bases (pueden faltar) y la hoja de dos caras encima -->
           <template v-if="flip">
-            <div class="pg slot-l">
-              <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.p" />
+            <div v-if="flip.L !== null" class="pg slot-l">
+              <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.L" />
             </div>
-            <div class="pg slot-r">
-              <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.p + 3" />
+            <div v-if="flip.R !== null" class="pg slot-r">
+              <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.R" />
             </div>
             <div class="leaf" :style="{ transform: `rotateY(${flip.angle}deg)` }">
               <div class="pg face front">
-                <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.p + 1" />
+                <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.F" />
               </div>
               <div class="pg face back">
-                <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.p + 2" />
+                <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.B" />
               </div>
             </div>
           </template>
 
-          <!-- Vista normal -->
+          <!-- Modo doble en reposo: la portada a la derecha, la última sola a la izquierda -->
+          <template v-else-if="double">
+            <div v-if="leftPage !== null" class="pg slot-l">
+              <PageRenderer :page="catalog.page" :data="catalog.data" :only="leftPage" />
+            </div>
+            <div v-if="rightPage !== null" class="pg slot-r">
+              <PageRenderer :page="catalog.page" :data="catalog.data" :only="rightPage" />
+            </div>
+          </template>
+
+          <!-- Modo de 1 página -->
           <template v-else>
             <div v-for="i in visible" :key="i" class="pg">
               <PageRenderer :page="catalog.page" :data="catalog.data" :only="i" />
@@ -335,14 +373,16 @@ body {
   box-shadow: 0 0 16px rgba(0, 0, 0, 0.18);
 }
 
-/* ===== Libro con la hoja girando (modo doble) ===== */
+/* ===== Libro (modo doble) ===== */
 /* Dos columnas de 560 px (el modo doble solo existe con 1180 px o más de ancho).
-   Las tres piezas comparten celdas de la misma cuadrícula, así que la altura la marca la más alta. */
+   Base izquierda, base derecha y hoja comparten celdas, así que la altura la marca la más alta. */
 .book {
   display: grid;
   grid-template-columns: 560px 560px;
   justify-content: center;
   perspective: 2600px;
+}
+.book.flipping {
   pointer-events: none;
 }
 .slot-l {
@@ -353,7 +393,7 @@ body {
   grid-column: 2;
   grid-row: 1;
 }
-/* La hoja gira sobre el lomo (su borde izquierdo) */
+/* La hoja gira sobre el lomo (su borde izquierdo, entre las dos columnas) */
 .leaf {
   grid-column: 2;
   grid-row: 1;
@@ -426,7 +466,7 @@ body {
   filter: brightness(0.8);
 }
 
-/* Modo doble sin volteo y cambios sin dirección: desvanecer */
+/* Cambios sin dirección (modo, tamaño de ventana, Atrás): desvanecer */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.35s ease;
