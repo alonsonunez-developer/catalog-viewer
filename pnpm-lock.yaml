@@ -12,8 +12,8 @@ importers:
         specifier: ^2.117.2
         version: 2.117.2
       catalog-kit:
-        specifier: npm:@alonsonunez-developer/catalog-kit@^0.1.8
-        version: '@alonsonunez-developer/catalog-kit@0.1.8(vue@3.5.43(typescript@6.0.3))(zod@4.6.5)'
+        specifier: npm:@alonsonunez-developer/catalog-kit@^0.1.9
+        version: '@alonsonunez-developer/catalog-kit@0.1.9(vue@3.5.43(typescript@6.0.3))(zod@4.6.5)'
       vue:
         specifier: ^3.5.42
         version: 3.5.43(typescript@6.0.3)
@@ -39,8 +39,8 @@ importers:
 
 packages:
 
-  '@alonsonunez-developer/catalog-kit@0.1.8':
-    resolution: {integrity: sha512-pJ7sZLRwxmmT+beNMSGKF2l6qcslaVenO7+KEx/XC3DJYmwhig3WtspDMyrR8aCP7xQj61OL7B+eNcBH+N2x9Q==, tarball: https://npm.pkg.github.com/download/@alonsonunez-developer/catalog-kit/0.1.8/553738f52ab3b453c5192a47d02b22d849f65972}
+  '@alonsonunez-developer/catalog-kit@0.1.9':
+    resolution: {integrity: sha512-JlkTmvbm82A5DPhVJuFGUZ7PO26utMdJ+hLSrGfp8l8hmEYrb+xNFJhrGY1oLKe586jpgIoZZNfW2Q6TA448nQ==, tarball: https://npm.pkg.github.com/download/@alonsonunez-developer/catalog-kit/0.1.9/598cb486b852fc9e35891fb956014630acaf71d2}
     peerDependencies:
       vue: ^3.5.0
       zod: ^4.0.0
@@ -487,7 +487,7 @@ packages:
 
 snapshots:
 
-  '@alonsonunez-developer/catalog-kit@0.1.8(vue@3.5.43(typescript@6.0.3))(zod@4.6.5)':
+  '@alonsonunez-developer/catalog-kit@0.1.9(vue@3.5.43(typescript@6.0.3))(zod@4.6.5)':
     dependencies:
       vue: 3.5.43(typescript@6.0.3)
       zod: 4.6.5

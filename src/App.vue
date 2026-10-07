@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { PageRenderer, PageSchema } from 'catalog-kit'
+import FitPage from './components/FitPage.vue'
 import { supabase } from './lib/supabase'
 
 // URLs: /<slug> y /<slug>/<número de página>, por ejemplo /dulce-hogar/3
@@ -264,7 +265,7 @@ onBeforeUnmount(() => {
   <div
     v-else-if="catalog && paged"
     class="shell"
-    :class="{ 'shell-double': double }"
+    :class="{ 'shell-double': double, 'shell-fit': wide }"
     @touchstart.passive="onTouchStart"
     @touchend.passive="onTouchEnd"
   >
@@ -274,17 +275,17 @@ onBeforeUnmount(() => {
           <!-- Modo doble con la hoja girando: bases (pueden faltar) y la hoja de dos caras encima -->
           <template v-if="flip">
             <div v-if="flip.L !== null" class="pg slot-l">
-              <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.L" />
+              <FitPage :page="catalog.page" :data="catalog.data" :index="flip.L" :fit="wide" />
             </div>
             <div v-if="flip.R !== null" class="pg slot-r">
-              <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.R" />
+              <FitPage :page="catalog.page" :data="catalog.data" :index="flip.R" :fit="wide" />
             </div>
             <div class="leaf" :style="{ transform: `rotateY(${flip.angle}deg)` }">
               <div class="pg face front">
-                <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.F" />
+                <FitPage :page="catalog.page" :data="catalog.data" :index="flip.F" :fit="wide" />
               </div>
               <div class="pg face back">
-                <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.B" />
+                <FitPage :page="catalog.page" :data="catalog.data" :index="flip.B" :fit="wide" />
               </div>
             </div>
           </template>
@@ -292,17 +293,17 @@ onBeforeUnmount(() => {
           <!-- Modo doble en reposo: la portada a la derecha, la última sola a la izquierda -->
           <template v-else-if="double">
             <div v-if="leftPage !== null" class="pg slot-l">
-              <PageRenderer :page="catalog.page" :data="catalog.data" :only="leftPage" />
+              <FitPage :page="catalog.page" :data="catalog.data" :index="leftPage" :fit="wide" />
             </div>
             <div v-if="rightPage !== null" class="pg slot-r">
-              <PageRenderer :page="catalog.page" :data="catalog.data" :only="rightPage" />
+              <FitPage :page="catalog.page" :data="catalog.data" :index="rightPage" :fit="wide" />
             </div>
           </template>
 
           <!-- Modo de 1 página -->
           <template v-else>
             <div v-for="i in visible" :key="i" class="pg">
-              <PageRenderer :page="catalog.page" :data="catalog.data" :only="i" />
+              <FitPage :page="catalog.page" :data="catalog.data" :index="i" :fit="wide" />
             </div>
           </template>
         </div>
@@ -371,6 +372,13 @@ body {
 }
 .shell-double .pg {
   box-shadow: 0 0 16px rgba(0, 0, 0, 0.18);
+}
+
+/* Pantallas anchas: cada página mide lo que la ventana deja libre sobre la barra de navegación */
+.shell-fit .pg {
+  min-height: 0;
+  height: calc(100vh - 4.5rem);
+  height: calc(100dvh - 4.5rem);
 }
 
 /* ===== Libro (modo doble) ===== */
