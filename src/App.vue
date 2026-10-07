@@ -19,12 +19,21 @@ const authorMode = computed<'single' | 'double'>(() =>
   parsed.value.success && parsed.value.data.version === 2 && parsed.value.data.display === 'double' ? 'double' : 'single',
 )
 
+// ===== Dirección de la animación =====
+// 'next' / 'prev' = voltear página; 'none' = cambio sin avanzar ni retroceder (desvanecer)
+const dir = ref<'next' | 'prev' | 'none'>('none')
+function moveTo(next: number) {
+  dir.value = next > current.value ? 'next' : next < current.value ? 'prev' : 'none'
+  current.value = next
+}
+
 // ===== Modo 1 o 2 páginas =====
 // Dos páginas solo caben en pantallas anchas (2 × 560 px)
 const WIDE_QUERY = '(min-width: 1180px)'
 const wide = ref(false)
 let mql: MediaQueryList | null = null
 const onWideChange = (e: MediaQueryListEvent) => {
+  dir.value = 'none'
   wide.value = e.matches
   current.value = spreadStart(current.value)
 }
@@ -78,7 +87,16 @@ const counter = computed(() => {
   return `${range} / ${total.value}`
 })
 
+// Animación: volteo en modo de 1 página; desvanecimiento en modo doble o sin dirección
+const transitionName = computed(() => {
+  if (double.value || dir.value === 'none') return 'fade'
+  return dir.value === 'next' ? 'turn-next' : 'turn-prev'
+})
+// Cada página o par visible es un elemento distinto para la transición
+const spreadKey = computed(() => `${double.value ? 'd' : 's'}-${visible.value.join('-')}`)
+
 function setMode(m: 'single' | 'double') {
+  dir.value = 'none'
   savePref(m)
   current.value = spreadStart(current.value)
   history.replaceState({}, '', `/${slug}/${current.value + 1}`)
@@ -94,13 +112,13 @@ function indexFromUrl(): number {
 function go(i: number) {
   const next = spreadStart(Math.max(0, Math.min(total.value - 1, i)))
   if (next === current.value) return
-  current.value = next
+  moveTo(next)
   history.pushState({}, '', `/${slug}/${next + 1}`)
   window.scrollTo({ top: 0 })
 }
 
 function onPopState() {
-  current.value = indexFromUrl()
+  moveTo(indexFromUrl())
   window.scrollTo({ top: 0 })
 }
 
@@ -175,10 +193,14 @@ onBeforeUnmount(() => {
     @touchstart.passive="onTouchStart"
     @touchend.passive="onTouchEnd"
   >
-    <div class="spread">
-      <div v-for="i in visible" :key="i" class="pg">
-        <PageRenderer :page="catalog.page" :data="catalog.data" :only="i" />
-      </div>
+    <div class="stage">
+      <Transition :name="transitionName">
+        <div :key="spreadKey" class="spread">
+          <div v-for="i in visible" :key="i" class="pg">
+            <PageRenderer :page="catalog.page" :data="catalog.data" :only="i" />
+          </div>
+        </div>
+      </Transition>
     </div>
 
     <nav class="pager" aria-label="Páginas del catálogo">
@@ -219,6 +241,12 @@ body {
   max-width: none;
   background: transparent;
 }
+/* El escenario da perspectiva 3D al volteo y contiene la página mientras gira */
+.stage {
+  position: relative;
+  perspective: 2200px;
+  overflow-x: clip;
+}
 .spread {
   display: flex;
   justify-content: center;
@@ -238,11 +266,85 @@ body {
 .shell-double .pg {
   box-shadow: 0 0 16px rgba(0, 0, 0, 0.18);
 }
+
+/* ===== Animaciones de cambio de página ===== */
+/* El elemento que sale se superpone al que entra, sin ocupar espacio ni recibir toques */
+.turn-next-leave-active,
+.turn-prev-leave-active,
+.fade-leave-active {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+/* Avanzar: la página actual gira sobre su borde izquierdo y deja ver la siguiente debajo */
+.turn-next-leave-active {
+  z-index: 2;
+  transform-origin: left center;
+  backface-visibility: hidden;
+  transition: transform 0.65s ease-in-out, filter 0.65s ease-in-out;
+}
+.turn-next-leave-to {
+  transform: rotateY(-100deg);
+  filter: brightness(0.75);
+}
+.turn-next-enter-active {
+  z-index: 1;
+  transition: filter 0.65s ease-in-out;
+}
+.turn-next-enter-from {
+  filter: brightness(0.8);
+}
+
+/* Retroceder: la página anterior vuelve girando encima de la actual */
+.turn-prev-enter-active {
+  z-index: 2;
+  transform-origin: left center;
+  backface-visibility: hidden;
+  transition: transform 0.65s ease-in-out, filter 0.65s ease-in-out;
+}
+.turn-prev-enter-from {
+  transform: rotateY(-100deg);
+  filter: brightness(0.75);
+}
+.turn-prev-leave-active {
+  z-index: 1;
+  transition: filter 0.65s ease-in-out;
+}
+.turn-prev-leave-to {
+  filter: brightness(0.8);
+}
+
+/* Modo doble y cambios sin dirección: desvanecer */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.35s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* Quien pide menos movimiento en su sistema no ve animaciones */
+@media (prefers-reduced-motion: reduce) {
+  .turn-next-enter-active,
+  .turn-next-leave-active,
+  .turn-prev-enter-active,
+  .turn-prev-leave-active,
+  .fade-enter-active,
+  .fade-leave-active {
+    transition: none !important;
+  }
+}
+
 .pager {
   position: fixed;
   bottom: 0;
   left: 50%;
   transform: translateX(-50%);
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
