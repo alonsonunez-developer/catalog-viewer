@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { PageRenderer, PageSchema } from 'catalog-kit'
 import { supabase } from './lib/supabase'
 
@@ -19,10 +19,51 @@ const authorMode = computed<'single' | 'double'>(() =>
   parsed.value.success && parsed.value.data.version === 2 && parsed.value.data.display === 'double' ? 'double' : 'single',
 )
 
-// ===== Dirección de la animación =====
-// 'next' / 'prev' = voltear página; 'none' = cambio sin avanzar ni retroceder (desvanecer)
+// ===== Volteo de hoja (modo doble) =====
+// p = primera página del par de origen/destino más bajo: [p, p+1] y [p+2, p+3].
+// La hoja que gira tiene de frente p+1 y de reverso p+2.
+const flip = ref<{ p: number; dir: 'next' | 'prev'; angle: number } | null>(null)
+let flipTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearFlip() {
+  if (flipTimer) clearTimeout(flipTimer)
+  flipTimer = null
+  flip.value = null
+}
+
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+function startFlip(p: number, flipDir: 'next' | 'prev', to: number) {
+  const start = flipDir === 'next' ? 0 : -180
+  const end = flipDir === 'next' ? -180 : 0
+  flip.value = { p, dir: flipDir, angle: start }
+  current.value = to
+  // Se pinta el estado inicial y, un cuadro después, se pide el final para que la transición CSS corra
+  nextTick().then(() =>
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (flip.value) flip.value.angle = end
+      }),
+    ),
+  )
+  flipTimer = setTimeout(clearFlip, 900)
+}
+
+// Solo se voltea entre pares completos que se siguen. Devuelve true si inició el volteo.
+function tryFlip(from: number, to: number): boolean {
+  if (!double.value || reducedMotion()) return false
+  const s = spreadStart(from)
+  if (s < 1 || to < 1 || Math.abs(to - s) !== 2) return false
+  if (Math.max(s, to) + 1 >= total.value) return false
+  startFlip(Math.min(s, to), to > s ? 'next' : 'prev', to)
+  return true
+}
+
+// ===== Dirección de la animación de las otras transiciones =====
+// 'next' / 'prev' = voltear página (modo 1 página); 'none' = cambio sin avanzar ni retroceder (desvanecer)
 const dir = ref<'next' | 'prev' | 'none'>('none')
 function moveTo(next: number) {
+  clearFlip()
   dir.value = next > current.value ? 'next' : next < current.value ? 'prev' : 'none'
   current.value = next
 }
@@ -33,6 +74,7 @@ const WIDE_QUERY = '(min-width: 1180px)'
 const wide = ref(false)
 let mql: MediaQueryList | null = null
 const onWideChange = (e: MediaQueryListEvent) => {
+  clearFlip()
   dir.value = 'none'
   wide.value = e.matches
   current.value = spreadStart(current.value)
@@ -87,8 +129,10 @@ const counter = computed(() => {
   return `${range} / ${total.value}`
 })
 
-// Animación: volteo en modo de 1 página; desvanecimiento en modo doble o sin dirección
+// Animación: sin transición de Vue durante el volteo de hoja (lo anima el propio libro),
+// volteo de página en modo de 1 página, y desvanecimiento en el resto
 const transitionName = computed(() => {
+  if (flip.value) return 'none'
   if (double.value || dir.value === 'none') return 'fade'
   return dir.value === 'next' ? 'turn-next' : 'turn-prev'
 })
@@ -96,6 +140,7 @@ const transitionName = computed(() => {
 const spreadKey = computed(() => `${double.value ? 'd' : 's'}-${visible.value.join('-')}`)
 
 function setMode(m: 'single' | 'double') {
+  clearFlip()
   dir.value = 'none'
   savePref(m)
   current.value = spreadStart(current.value)
@@ -110,9 +155,10 @@ function indexFromUrl(): number {
 }
 
 function go(i: number) {
+  if (flip.value) return // hay una hoja girando: se ignoran clics y gestos hasta que termine
   const next = spreadStart(Math.max(0, Math.min(total.value - 1, i)))
   if (next === current.value) return
-  moveTo(next)
+  if (!tryFlip(current.value, next)) moveTo(next)
   history.pushState({}, '', `/${slug}/${next + 1}`)
   window.scrollTo({ top: 0 })
 }
@@ -175,6 +221,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  clearFlip()
   mql?.removeEventListener('change', onWideChange)
   window.removeEventListener('popstate', onPopState)
   window.removeEventListener('keydown', onKey)
@@ -195,10 +242,31 @@ onBeforeUnmount(() => {
   >
     <div class="stage">
       <Transition :name="transitionName">
-        <div :key="spreadKey" class="spread">
-          <div v-for="i in visible" :key="i" class="pg">
-            <PageRenderer :page="catalog.page" :data="catalog.data" :only="i" />
-          </div>
+        <div :key="spreadKey" :class="flip ? 'book' : 'spread'">
+          <!-- Libro con la hoja girando: bases estáticas y la hoja de dos caras encima -->
+          <template v-if="flip">
+            <div class="pg slot-l">
+              <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.p" />
+            </div>
+            <div class="pg slot-r">
+              <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.p + 3" />
+            </div>
+            <div class="leaf" :style="{ transform: `rotateY(${flip.angle}deg)` }">
+              <div class="pg face front">
+                <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.p + 1" />
+              </div>
+              <div class="pg face back">
+                <PageRenderer :page="catalog.page" :data="catalog.data" :only="flip.p + 2" />
+              </div>
+            </div>
+          </template>
+
+          <!-- Vista normal -->
+          <template v-else>
+            <div v-for="i in visible" :key="i" class="pg">
+              <PageRenderer :page="catalog.page" :data="catalog.data" :only="i" />
+            </div>
+          </template>
         </div>
       </Transition>
     </div>
@@ -241,7 +309,7 @@ body {
   max-width: none;
   background: transparent;
 }
-/* El escenario da perspectiva 3D al volteo y contiene la página mientras gira */
+/* El escenario da perspectiva 3D al volteo de página y contiene lo que gira */
 .stage {
   position: relative;
   perspective: 2200px;
@@ -267,7 +335,48 @@ body {
   box-shadow: 0 0 16px rgba(0, 0, 0, 0.18);
 }
 
-/* ===== Animaciones de cambio de página ===== */
+/* ===== Libro con la hoja girando (modo doble) ===== */
+/* Dos columnas de 560 px (el modo doble solo existe con 1180 px o más de ancho).
+   Las tres piezas comparten celdas de la misma cuadrícula, así que la altura la marca la más alta. */
+.book {
+  display: grid;
+  grid-template-columns: 560px 560px;
+  justify-content: center;
+  perspective: 2600px;
+  pointer-events: none;
+}
+.slot-l {
+  grid-column: 1;
+  grid-row: 1;
+}
+.slot-r {
+  grid-column: 2;
+  grid-row: 1;
+}
+/* La hoja gira sobre el lomo (su borde izquierdo) */
+.leaf {
+  grid-column: 2;
+  grid-row: 1;
+  position: relative;
+  z-index: 2;
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  transition: transform 0.8s ease-in-out;
+}
+.leaf .face {
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  box-shadow: 0 0 24px rgba(0, 0, 0, 0.25);
+}
+/* El reverso se dibuja girado 180°: al terminar el giro queda del derecho, en la columna izquierda */
+.leaf .back {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  transform: rotateY(180deg);
+}
+
+/* ===== Animaciones de cambio de página (modo 1 página y desvanecimientos) ===== */
 /* El elemento que sale se superpone al que entra, sin ocupar espacio ni recibir toques */
 .turn-next-leave-active,
 .turn-prev-leave-active,
@@ -317,7 +426,7 @@ body {
   filter: brightness(0.8);
 }
 
-/* Modo doble y cambios sin dirección: desvanecer */
+/* Modo doble sin volteo y cambios sin dirección: desvanecer */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.35s ease;
@@ -334,7 +443,8 @@ body {
   .turn-prev-enter-active,
   .turn-prev-leave-active,
   .fade-enter-active,
-  .fade-leave-active {
+  .fade-leave-active,
+  .leaf {
     transition: none !important;
   }
 }
