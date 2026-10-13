@@ -77,6 +77,7 @@ const background = computed(() => {
 }
 /* Portadas y contacto miden "85vh"/"70vh"; aquí llenan el alto de la página */
 .fit-inner.on :deep(section[class*='min-h-']) {
-  min-height: var(--fill) !important;
+  min-height: 0 !important;
+  flex: 1 1 auto;
 }
 </style>
