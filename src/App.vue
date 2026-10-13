@@ -340,9 +340,20 @@ body {
 .shell {
   max-width: 560px;
   min-height: 100vh;
+  min-height: 100dvh;
   margin: 0 auto;
-  padding-bottom: 4.5rem;
   background: #fff;
+}
+/* Espacio para la barra de navegación fija, del mismo color que ella (ya no hay franja blanca) */
+.shell::after {
+  content: '';
+  display: block;
+  height: 4.5rem;
+  background: #141414;
+}
+.shell-double::after,
+.shell-fit::after {
+  background: transparent;
 }
 .shell-double {
   max-width: none;
@@ -363,7 +374,8 @@ body {
   flex-direction: column;
   flex: 0 1 560px;
   min-width: 0;
-  min-height: 100vh;
+  min-height: calc(100vh - 4.5rem);
+  min-height: calc(100dvh - 4.5rem);
   background: #fff;
 }
 /* La raíz de cada página se estira para que su fondo llene la altura del par */
