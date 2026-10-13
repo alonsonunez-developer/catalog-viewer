@@ -73,6 +73,7 @@ const background = computed(() => {
   left: 0;
   width: 560px;
   transform-origin: top left;
+  --ck-page-min-h: var(--fill); /* la página llena el alto disponible */
 }
 /* Portadas y contacto miden "85vh"/"70vh"; aquí llenan el alto de la página */
 .fit-inner.on :deep(section[class*='min-h-']) {
