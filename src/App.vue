@@ -3,6 +3,16 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { PageRenderer, PageSchema } from 'catalog-kit'
 import FitPage from './components/FitPage.vue'
 import { supabase } from './lib/supabase'
+import * as sp from './lib/spreads'
+
+const spreadStart = (i: number) => sp.spreadStart(i, double.value)
+const visible = computed(() => sp.visiblePages(current.value, double.value, total.value))
+const leftPage = computed(() => sp.leftOf(spreadStart(current.value)))
+const rightPage = computed(() => sp.rightOf(spreadStart(current.value), total.value))
+const nextIndex = computed(() => sp.nextIndex(current.value, double.value))
+const prevIndex = computed(() => sp.prevIndex(current.value, double.value))
+const hasPrev = computed(() => sp.hasPrev(current.value, double.value, total.value))
+const hasNext = computed(() => sp.hasNext(current.value, double.value, total.value))
 
 // URLs: /<slug> y /<slug>/<número de página>, por ejemplo /dulce-hogar/3
 const segments = () => location.pathname.split('/').filter(Boolean)
@@ -49,34 +59,10 @@ const double = computed(() => paged.value && wide.value && (userMode.value ?? au
 
 // En modo doble la portada va sola (a la derecha) y después van pares: [0], [1,2], [3,4]…
 // Si el total es par, la última página queda sola (a la izquierda).
-function spreadStart(i: number): number {
-  if (!double.value || i <= 0) return Math.max(0, i)
-  return i % 2 === 1 ? i : i - 1
-}
 // Página de la izquierda y de la derecha de un par (null = hueco vacío)
 const leftOf = (s: number): number | null => (s === 0 ? null : s)
 const rightOf = (s: number): number | null => (s === 0 ? 0 : s + 1 < total.value ? s + 1 : null)
 
-const visible = computed(() => {
-  const s = spreadStart(current.value)
-  if (!double.value || s === 0) return [s]
-  return [s, s + 1].filter((i) => i < total.value)
-})
-const leftPage = computed(() => leftOf(spreadStart(current.value)))
-const rightPage = computed(() => rightOf(spreadStart(current.value)))
-
-const nextIndex = computed(() => {
-  const s = spreadStart(current.value)
-  if (!double.value) return s + 1
-  return s === 0 ? 1 : s + 2
-})
-const prevIndex = computed(() => {
-  const s = spreadStart(current.value)
-  if (!double.value) return s - 1
-  return s <= 1 ? 0 : s - 2
-})
-const hasPrev = computed(() => visible.value[0] > 0)
-const hasNext = computed(() => visible.value[visible.value.length - 1] < total.value - 1)
 const counter = computed(() => {
   const v = visible.value
   const range = v.length > 1 ? `${v[0] + 1}-${v[v.length - 1] + 1}` : `${v[0] + 1}`
@@ -108,24 +94,12 @@ const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)'
 
 // Devuelve true si inició el volteo (solo entre pares contiguos, en modo doble)
 function tryFlip(from: number, to: number): boolean {
-  if (!double.value || reducedMotion()) return false
-  const s = spreadStart(from)
-  const isNext = to === nextIndex.value && hasNext.value
-  const isPrev = to === prevIndex.value && hasPrev.value
-  if (!isNext && !isPrev) return false
+  if (reducedMotion()) return false
+  const plan = sp.planFlip(from, to, double.value, total.value)
+  if (!plan) return false
 
-  const F = isNext ? rightOf(s) : rightOf(to)
-  const B = isNext ? leftOf(to) : leftOf(s)
-  if (F === null || B === null) return false
-
-  flip.value = {
-    L: isNext ? leftOf(s) : leftOf(to),
-    R: isNext ? rightOf(to) : rightOf(s),
-    F,
-    B,
-    angle: isNext ? 0 : -180,
-  }
-  const end = isNext ? -180 : 0
+  flip.value = { L: plan.L, R: plan.R, F: plan.F, B: plan.B, angle: plan.isNext ? 0 : -180 }
+  const end = plan.isNext ? -180 : 0
   current.value = to
   // Se pinta el estado inicial y, un par de cuadros después, el final para que la transición CSS corra
   nextTick().then(() =>
