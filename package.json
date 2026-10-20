@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
-    "catalog-kit": "npm:@alonsonunez-developer/catalog-kit@^0.1.14",
+    "catalog-kit": "npm:@alonsonunez-developer/catalog-kit@^0.1.15",
     "vue": "^3.5.42"
   },
   "devDependencies": {
