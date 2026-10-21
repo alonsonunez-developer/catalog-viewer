@@ -57,12 +57,6 @@ function savePref(v: 'single' | 'double') {
 
 const double = computed(() => paged.value && wide.value && (userMode.value ?? authorMode.value) === 'double')
 
-// En modo doble la portada va sola (a la derecha) y después van pares: [0], [1,2], [3,4]…
-// Si el total es par, la última página queda sola (a la izquierda).
-// Página de la izquierda y de la derecha de un par (null = hueco vacío)
-const leftOf = (s: number): number | null => (s === 0 ? null : s)
-const rightOf = (s: number): number | null => (s === 0 ? 0 : s + 1 < total.value ? s + 1 : null)
-
 const counter = computed(() => {
   const v = visible.value
   const range = v.length > 1 ? `${v[0] + 1}-${v[v.length - 1] + 1}` : `${v[0] + 1}`
